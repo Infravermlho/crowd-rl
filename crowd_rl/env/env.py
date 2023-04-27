@@ -1,3 +1,7 @@
+# TODO: 
+# self.world.width | self.world.height
+# Initialize world on function: load_Location()
+
 import os
 
 import gymnasium as gym
@@ -37,19 +41,61 @@ class CrowdEnvironment(AECEnv):
         # INICIA A SOBRECLASSE da SUBCALSSE (AECEnv)
         super().__init__()
 
-        self.env = Crowd()
-        # INICIALMENTE VAI SER RANDOM, MAS DEFINIR POR ARG DEPOIS
-        self.agents = 5
+        self.num_agents = args.num_agents if hasattr(args, "num_agents") else 1
+        self.location = args.location if hasattr(
+            args, "location") else "default"
+        self.runtime = args.runtime if hasattr(args, "runtime") else 360
 
-        # ESTRUTURA DE AÇÕES LEGITMAS
-        self._action_spaces = {agent: Discrete(3) for agent in self.possible_agents}
+        self.possible_agents = ["player_" +
+                                str(r) for r in range(self.num_agents)]
 
-        # ESTRUTURA DE VALORES LEGITMO PARA LEITURA
-        # +---------------------------------------+
-        # The observation for the mountain car environment 
-        # is a vector of two numbers representing velocity 
-        # and position. The middle point between the two 
-        # mountains is taken to be the origin, with right 
-        # being the positive direction and left being the 
-        # negative direction.
-        self.observation_space = spaces.Box(2,)
+        self.filename = f"{self.level}_agents{self.num_agents}"
+        self.termination_info = ""
+
+        self.world = CrowdEnvironment()
+        self.timestep = 0
+
+        self.world.load_Location(
+            location=self.location, num_agents=self.num_agents)
+        
+        
+        numeric_obs_space = {'symbolic_observation': gym.spaces.Box(low=0, high=10,
+                                                            shape=(self.world.width, self.world.height,
+                                                                   self.graph_representation_length), dtype=np.int32),
+
+                             'agent_location': gym.spaces.Box(low=0, high=max(self.world.width, self.world.height),
+                                                              shape=(2,)),
+
+                             'goal_vector': gym.spaces.MultiBinary(NUM_GOALS)}
+        
+        self.observation_spaces = {agent: gym.spaces.Dict(numeric_obs_space) for agent in self.possible_agents}
+        self.action_spaces = {agent: gym.spaces.Discrete(4) for agent in self.possible_agents}
+
+        # Didn't UNDERSTAND YET!!!!
+        # NO IDEA WHAT MAPPING IS
+        self.agent_name_mapping = dict(zip(self.possible_agents, list(range(len(self.possible_agents)))))
+        self.world_agent_mapping = dict(zip(self.possible_agents, self.world.agents))
+        self.world_agent_to_env_agent_mapping = dict(zip(self.world.agents, self.possible_agents))
+        # Didn't UNDERSTAND YET!!!!
+
+        self.done = False
+        self.rewards = dict(zip(self.agents, [0 for _ in self.agents]))
+        self._cumulative_rewards = dict(zip(self.agents, [0 for _ in self.agents]))
+        self.dones = dict(zip(self.agents, [False for _ in self.agents]))
+        self.infos = dict(zip(self.agents, [{} for _ in self.agents]))
+        self.accumulated_actions = []
+
+    def reset(self):
+        pass
+
+    def step(self, actions):
+        pass
+
+    def render(self):
+        pass
+
+    def observation_space(self, agent):
+        return self.observation_spaces[agent]
+
+    def action_space(self, agent):
+        return self.action_spaces[agent]
