@@ -3,7 +3,7 @@ from location.tiledata import TileData
 
 
 class Location:
-    # Carrega o arquvio .txt como um nivel
+    # Carrega o arquivo .csv como um nivel
     def __init__(self):
         self.tile_data = TileData()
         self.tile_retangulos = []
