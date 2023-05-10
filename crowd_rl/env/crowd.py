@@ -1,6 +1,6 @@
 import pygame
-from actor import Actor
-from location.location import Location
+from crowd_rl.env.actor import Actor
+from crowd_rl.env.location.location import Location
 
 clock = pygame.time.Clock()
 

@@ -1,5 +1,5 @@
 import pygame
-from location.tiledata import TileData
+from crowd_rl.env.location.tiledata import TileData
 
 
 class Location:
