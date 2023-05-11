@@ -171,7 +171,6 @@ class raw_env(AECEnv):
         """
         if (
             self.terminations[self.agent_selection]
-            or self.truncations[self.agent_selection]
         ):
             # handles stepping an agent which is already dead
             # accepts a None action for the one agent, and moves the agent_selection to
@@ -192,15 +191,11 @@ class raw_env(AECEnv):
         # collect reward if it is the last agent to act
         if self._agent_selector.is_last():
             # rewards for all agents are placed in the .rewards dictionary
-            self.rewards[self.agents[0]], self.rewards[self.agents[1]] = REWARD_MAP[
-                (self.state[self.agents[0]], self.state[self.agents[1]])
-            ]
-
-            self.num_moves += 1
-            # The truncations dictionary must be updated for all players.
-            self.truncations = {
-                agent: self.num_moves >= NUM_ITERS for agent in self.agents
-            }
+            self.timesteps += 1
+            # # The truncations dictionary must be updated for all players.
+            # self.truncations = {
+            #     agent: self.num_moves >= NUM_ITERS for agent in self.agents
+            # }
 
             # observe the current state
             for i in self.agents:
