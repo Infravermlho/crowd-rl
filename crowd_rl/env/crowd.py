@@ -1,107 +1,95 @@
-import pygame
-from crowd_rl.env.actor import Actor
-from crowd_rl.env.location.location import Location
+import functools
 
-clock = pygame.time.Clock()
+import numpy as np
+import gymnasium as gym
+
+from pettingzoo import AECEnv
+from pettingzoo.utils import agent_selector, wrappers
+
+def env(render_mode=None):
+    """
+    The env function often wraps the environment in wrappers by default.
+    You can find full documentation for these methods
+    elsewhere in the developer documentation.
+    """
+    internal_render_mode = render_mode if render_mode != "ansi" else "human"
+    env = raw_env(render_mode=internal_render_mode)
+    # This wrapper is only for environments which print results to the terminal
+    if render_mode == "ansi":
+        env = wrappers.CaptureStdoutWrapper(env)
+    # this wrapper helps error handling for discrete action spaces
+    env = wrappers.AssertOutOfBoundsWrapper(env)
+    # Provides a wide vareity of helpful user errors
+    # Strongly recommended
+    env = wrappers.OrderEnforcingWrapper(env)
+    return env
+
+class raw_env(AECEnv):
+    metadata = {"render_modes": ["human"], "name": "crowd_rl"}
+    def __init__(self, render_mode=None):
+        """
+        The init method takes in environment arguments and
+         should define the following attributes:
+        - possible_agents
+        - render_mode
+
+        These attributes should not be changed after initialization.
+        """
+        self.place_height = 200
+        self.place_width = 200
+
+        self.possible_agents = ["player_" + str(r) for r in range(2)]
+
+        self.agent_name_mapping = dict(
+            zip(self.possible_agents, list(range(len(self.possible_agents))))
+        )
+
+        self._action_spaces = {agent: gym.spaces.Discrete(4) for agent in self.possible_agents}
+        self._observation_spaces = {
+            agent: gym.spaces.Dict(
+            obstacles=gym.spaces.Box(0.0, 1.0, shape=(self.place_height, self.place_width)),
+            agents=gym.spaces.Box(0.0, 1.0, shape=(self.place_height, self.place_width)),
+            xy=gym.spaces.Box(low=-1024, high=1024, shape=(2,), dtype=int),
+            target_xy=gym.spaces.Box(low=-1024, high=1024, shape=(2,), dtype=int),
+        ) for agent in self.possible_agents
+        }
+
+        self.render_mode = render_mode
+
+    @functools.lru_cache(maxsize=None)
+    def observation_space(self, agent):
+        return gym.spaces.Dict(
+            obstacles=gym.spaces.Box(0.0, 1.0, shape=(self.place_height, self.place_width)),
+            agents=gym.spaces.Box(0.0, 1.0, shape=(self.place_height, self.place_width)),
+            xy=gym.spaces.Box(low=-1024, high=1024, shape=(2,), dtype=int),
+            target_xy=gym.spaces.Box(low=-1024, high=1024, shape=(2,), dtype=int),
+        )
+
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent):
+        return gym.spaces.Discrete(4)
+
+    def reset(self, seed=None, options=None):
+        self.timestep = 0
+
+        self.agents = self.possible_agents[:]
+        self.rewards = {agent: 0 for agent in self.agents}
+        self._cumulative_rewards = {agent: 0 for agent in self.agents}
+        self.terminations = {agent: False for agent in self.agents}
+        self.truncations = {agent: False for agent in self.agents}
+        self.agent_pos = {agent: (0, 0) for agent in self.agents}
+        self.infos = {agent: {} for agent in self.agents}
+        self.num_moves = 0
+
+        self._agent_selector = agent_selector(self.agents)
+        self.agent_selection = self._agent_selector.next()
+
+    def step(self, actions):
+        if self.terminations[self.agent_selection] or self.truncations[self.agent_selection]:
+            self._was_dead_step(action)
+            return
+        
 
 
-class Crowd:
-    def __init__(self):
-        self._running = True
-        self._display_surf = None
-        self.size = self.weight, self.height = 1200, 800
-        self.display = self.weight, self.height = 600, 400
-        self.scrollvalue = [0, 0]
-
-        self.actors = []
-        self.selected_actor = 0
-
-    def on_execute(self):
-        self.on_init()
-
-        while self._running:
-            for event in pygame.event.get():
-                self.on_event(event)
-            self.on_loop()
-            self.on_render()
-            clock.tick(60)
-        self.on_cleanup
-
-    def on_init(self):
-        pygame.init()
-        self._screen = pygame.display.set_mode(
-            self.size, pygame.HWSURFACE | pygame.DOUBLEBUF)
-        self._display_surf = pygame.Surface((300, 200))
-
-        pygame.display.set_caption("Debugging CrowdSim")
-
-        self.location = Location()
-        self.actors.append(Actor(x=120, y=120))
-
-        self._running = True
-
-    def on_loop(self):
-        for actor in self.actors:
-            actor.update(self.location.tile_retangulos)
-
-    def on_render(self):
-        self._display_surf.fill((105, 155, 125))
-        for actor in self.actors:
-            actor.draw(self._display_surf, self.scrollvalue)
-        self.location.blitnivel(self._display_surf, self.scrollvalue)
-
-        displaysurf = pygame.transform.scale(self._display_surf, self.size)
-        self._screen.blit(displaysurf, (0, 0))
-        pygame.display.update()
-
-    def on_event(self, event):
-        if event.type == pygame.QUIT:
-            self._running = False
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_LEFT:
-                self.actors[self.selected_actor].goLeft()
-            elif event.key == pygame.K_RIGHT:
-                self.actors[self.selected_actor].goRight()
-            elif event.key == pygame.K_UP:
-                self.actors[self.selected_actor].goUp()
-            elif event.key == pygame.K_DOWN:
-                self.actors[self.selected_actor].goDown()
-            elif event.key == pygame.K_x:
-                self.actors[self.selected_actor].stopY()
-                self.actors[self.selected_actor].stopX()
-                self.selected_actor = (
-                    self.selected_actor + 1) % len(self.actors)
-                print("[on_event] Ator ativo: " + str(self.selected_actor))
-            elif event.key == pygame.K_c:
-                self.actors.append(Actor(x=120, y=120))
-
-            elif event.key == pygame.K_k:
-                print("[on_event] scrollvalue X: " +
-                      str(self.scrollvalue[0]) + "Y: " + str(self.scrollvalue[1]))
-                self.scrollvalue[1] += 1
-            elif event.key == pygame.K_i:
-                print("[on_event] scrollvalue X: " +
-                      str(self.scrollvalue[0]) + "Y: " + str(self.scrollvalue[1]))
-                self.scrollvalue[1] += -1
-            elif event.key == pygame.K_l:
-                print("[on_event] scrollvalue X: " +
-                      str(self.scrollvalue[0]) + "Y: " + str(self.scrollvalue[1]))
-                self.scrollvalue[0] += 1
-            elif event.key == pygame.K_j:
-                print("[on_event] scrollvalue X: " +
-                      str(self.scrollvalue[0]) + "Y: " + str(self.scrollvalue[1]))
-                self.scrollvalue[0] += -1
-
-        elif event.type == pygame.KEYUP:
-            if event.key == pygame.K_LEFT and self.actors[self.selected_actor]._changeX < 0:
-                self.actors[self.selected_actor].stopX()
-            elif event.key == pygame.K_RIGHT and self.actors[self.selected_actor]._changeX > 0:
-                self.actors[self.selected_actor].stopX()
-            elif event.key == pygame.K_UP and self.actors[self.selected_actor]._changeY < 0:
-                self.actors[self.selected_actor].stopY()
-            elif event.key == pygame.K_DOWN and self.actors[self.selected_actor]._changeY > 0:
-                self.actors[self.selected_actor].stopY()
-
-    def on_cleanup(self):
+    def render(self):
         pass
-
