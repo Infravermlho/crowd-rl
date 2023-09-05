@@ -1,0 +1,12 @@
+[project]
+name = "crowd-rl"
+version = "0.0.1"
+authors = [{ name = "Lucas Souza", email = "lucassouzasilva74@gmail.com" }]
+license = { text = "MIT License" }
+dependencies = [
+    "gymnasium",
+    "pettingzoo"
+]
+
+[tool.setuptools.package-data]
+crowd_rl = ["*.jpg"] 
