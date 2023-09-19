@@ -9,4 +9,4 @@ dependencies = [
 ]
 
 [tool.setuptools.package-data]
-crowd_rl = ["*.jpg"] 
+crowd_rl = ["*.png"] 
