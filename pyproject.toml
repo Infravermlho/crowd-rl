@@ -5,7 +5,12 @@ authors = [{ name = "Lucas Souza", email = "lucassouzasilva74@gmail.com" }]
 license = { text = "MIT License" }
 dependencies = [
     "gymnasium",
-    "pettingzoo"
+    "pettingzoo",
+    "pygame",
+    "pydantic",
+    "wheel",
+    "stable-baselines3",
+    "supersuit",
 ]
 
 [tool.setuptools.package-data]

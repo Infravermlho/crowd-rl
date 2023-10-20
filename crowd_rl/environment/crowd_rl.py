@@ -1,19 +1,20 @@
 import os
 from os import path as os_path
+from copy import copy
 
 import gymnasium
 import numpy as np
 import pygame
-from copy import copy
 from gymnasium import spaces
 from gymnasium.utils import EzPickle
+from gymnasium.wrappers import FlattenObservation
 
 from pettingzoo import AECEnv
 from pettingzoo.utils import wrappers
 from pettingzoo.utils.agent_selector import agent_selector
+from pettingzoo.utils.conversions import parallel_wrapper_fn
 
 from .config import Config
-from .world import World
 
 
 def get_image(path):
@@ -33,11 +34,14 @@ def env(**kwargs):
     return env
 
 
+parallel_env = parallel_wrapper_fn(env)
+
+
 class raw_env(AECEnv, EzPickle):
     metadata = {
         "render_modes": ["human", "rgb_array"],
         "name": "crowd_rl_v0",
-        "is_parallelizable": False,
+        "is_parallelizable": True,
         "render_fps": 2,
     }
 
@@ -61,6 +65,11 @@ class raw_env(AECEnv, EzPickle):
 
         self.agents = [f"player_{i}" for i in range(self.config.num_agents)]
         self.possible_agents = self.agents[:]
+        self._agent_selector = agent_selector(self.agents)
+
+        # Handles agent termination
+        self.kill_list = []
+        self.dead_agents = []
 
         # [no_action, move_left, move_right, move_down, move_up]`
         self.action_spaces = {i: spaces.Discrete(5) for i in self.agents}
@@ -99,6 +108,9 @@ class raw_env(AECEnv, EzPickle):
         # pylint: disable=attribute-defined-outside-init
         self.agents = self.possible_agents[:]
 
+        self._agent_selector.reinit(self.agents)
+        self.agent_selection = self._agent_selector.next()
+
         self.map = np.array(self.config.worldmap)
         self.height = self.config.height
         self.width = self.config.width
@@ -113,24 +125,62 @@ class raw_env(AECEnv, EzPickle):
         self.truncations = {i: False for i in self.agents}
         self.infos = {i: {} for i in self.agents}
 
-        self._agent_selector = agent_selector(self.agents)
+    def step(self, action):
+        if (
+            self.truncations[self.agent_selection]
+            or self.terminations[self.agent_selection]
+        ):
+            return self._was_dead_step(action)
 
-        self.agent_selection = self._agent_selector.reset()
+        agent = self.agent_selection
+        self._agent_act(agent, action)
+
+        if self._was_on_target(agent):
+            self.rewards[agent] += 1
+            self.kill_list.append(agent)
+
+        # manage the kill list
+        if self._agent_selector.is_last():
+            # start iterating on only the living agents
+            _live_agents = self.agents[:]
+            for k in self.kill_list:
+                # kill the agent
+                _live_agents.remove(k)
+                # set the termination for this agent for one round
+                self.terminations[k] = True
+                # add that we know this guy is dead
+                self.dead_agents.append(k)
+
+            # reset the kill list
+            self.kill_list = []
+
+            # reinit the agent selector with existing agents
+            self._agent_selector.reinit(_live_agents)
+
+        if len(self._agent_selector.agent_order):
+            self.agent_selection = self._agent_selector.next()
+
+        self._accumulate_rewards()
+        self._deads_step_first()
+
+        if self.render_mode == "human":
+            self.render()
 
     def observe(self, agent):
-        # cur_agent = self.possible_agents.index(agent)
         obstacles_obs = self._get_obstacles(agent)
         agents_obs = self._get_other_agents(agent)
         own_postion_obs = self._get_other_agents(agent)
         target_postion = self._get_target_pos(agent)
         action_mask = self._get_action_mask(agent)
 
-        print(f"Obstacles for {agent}: {obstacles_obs}")
-        print(f"Agents_obs for {agent}: {agents_obs}")
-        print(f"own_position_obs for {agent}: {own_postion_obs}")
-        print(f"target_position for {agent}: {target_postion}")
-        print(f"Action mask for {agent}: {action_mask}")
+        print(self.observation_spaces[agent])
+        print(np.zeros_like(self.observation_spaces[agent]))
 
+        # print(f"Obstacles for {agent}: {obstacles_obs}")
+        # print(f"Agents_obs for {agent}: {agents_obs}")
+        # print(f"own_position_obs for {agent}: {own_postion_obs}")
+        # print(f"target_position for {agent}: {target_postion}")
+        # print(f"Action mask for {agent}: {action_mask}")
         return {
             "obstacles": obstacles_obs,
             "agents": agents_obs,
@@ -144,22 +194,6 @@ class raw_env(AECEnv, EzPickle):
 
     def action_space(self, agent):
         return self.action_spaces[agent]
-
-    def step(self, action):
-        if (
-            self.truncations[self.agent_selection]
-            or self.terminations[self.agent_selection]
-        ):
-            return self._was_dead_step(action)
-
-        print(f"{self.agent_selection} acting upon {action}")
-        self._agent_act(self.agent_selection, action)
-
-        self.agent_selection = self._agent_selector.next()
-        # self._accumulate_rewards()
-
-        if self.render_mode == "human":
-            self.render()
 
     def render(self):
         # TODO: Implement screen scaling
@@ -197,10 +231,10 @@ class raw_env(AECEnv, EzPickle):
         self.screen.fill([255, 255, 255])
 
         full_feature_map = copy(self.map)
+        for _, target_pos in self.targets_xy.items():
+            full_feature_map[target_pos[0][1]][target_pos[0][0]] = 2
         for _, agent_pos in self.agents_pos.items():
             full_feature_map[agent_pos[1]][agent_pos[0]] = 9
-        for _, target_pos in self.targets_xy.items():
-            full_feature_map[target_pos[1]][target_pos[0]] = 2
 
         for index, tile in enumerate(full_feature_map.flat):
             x = index % self.width
@@ -249,6 +283,9 @@ class raw_env(AECEnv, EzPickle):
     def _get_agent_pos(self, agent_id: str):
         return self.agents_pos[agent_id]
 
+    def _was_on_target(self, agent_id: str):
+        return self._get_agent_pos(agent_id) == self._get_target_pos(agent_id)
+
     def _get_other_agents(self, agent_id: str):
         # TODO: Manter a lista permanentemente ou gerar na hora?
 
@@ -272,32 +309,26 @@ class raw_env(AECEnv, EzPickle):
         action_mask = np.ones(5, "int8")
         current_pos_x, current_pos_y = self.agents_pos[agent_id]
 
-        full_feature_map = copy(self.map)
+        colision_map = copy(self.map)
         for _, agent_pos in self.agents_pos.items():
-            full_feature_map[agent_pos[1]][agent_pos[0]] = 9
+            colision_map[agent_pos[1]][agent_pos[0]] = 9
 
-        if (
-            current_pos_x - 1 < 0
-            or full_feature_map[current_pos_y][current_pos_x - 1] != 0
-        ):
+        if current_pos_x - 1 < 0 or colision_map[current_pos_y][current_pos_x - 1] != 0:
             action_mask[1] = 0
 
         if (
             current_pos_x + 1 >= self.width
-            or full_feature_map[current_pos_y][current_pos_x + 1] != 0
+            or colision_map[current_pos_y][current_pos_x + 1] != 0
         ):
             action_mask[2] = 0
 
         if (
             current_pos_y + 1 >= self.height
-            or full_feature_map[current_pos_y + 1][current_pos_x] != 0
+            or colision_map[current_pos_y + 1][current_pos_x] != 0
         ):
             action_mask[3] = 0
 
-        if (
-            current_pos_y - 1 < 0
-            or full_feature_map[current_pos_y - 1][current_pos_x] != 0
-        ):
+        if current_pos_y - 1 < 0 or colision_map[current_pos_y - 1][current_pos_x] != 0:
             action_mask[4] = 0
 
         return action_mask

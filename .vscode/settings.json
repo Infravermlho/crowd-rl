@@ -1,3 +1,9 @@
 {
-    "pylint.args": ["--extension-pkg-whitelist=pygame"]
+    "pylint.args": [
+        "--extension-pkg-whitelist=pygame"
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "python.formatting.provider": "none"
 }
