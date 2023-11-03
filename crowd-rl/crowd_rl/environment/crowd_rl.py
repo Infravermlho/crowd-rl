@@ -173,9 +173,6 @@ class raw_env(AECEnv, EzPickle):
         target_postion = self._get_target_pos(agent)
         action_mask = self._get_action_mask(agent)
 
-        print(self.observation_spaces[agent])
-        print(np.zeros_like(self.observation_spaces[agent]))
-
         # print(f"Obstacles for {agent}: {obstacles_obs}")
         # print(f"Agents_obs for {agent}: {agents_obs}")
         # print(f"own_position_obs for {agent}: {own_postion_obs}")
@@ -228,6 +225,12 @@ class raw_env(AECEnv, EzPickle):
         target = get_image(os.path.join("img", "target.png"))
         target = pygame.transform.scale(target, (tile_size, tile_size))
 
+        target_inactive = get_image(os.path.join("img", "target_inactive.png"))
+        target_inactive = pygame.transform.scale(target_inactive, (tile_size, tile_size))
+
+        target_primary = get_image(os.path.join("img", "target_primary.png"))
+        target_primary = pygame.transform.scale(target_primary, (tile_size, tile_size))
+
         self.screen.fill([255, 255, 255])
 
         full_feature_map = copy(self.map)
@@ -255,6 +258,16 @@ class raw_env(AECEnv, EzPickle):
             elif tile == 2:
                 self.screen.blit(
                     target,
+                    ((x * tile_size, y * tile_size)),
+                )
+            elif tile == 3:
+                self.screen.blit(
+                    target_primary,
+                    ((x * tile_size, y * tile_size)),
+                )
+            elif tile == 4:
+                self.screen.blit(
+                    target_inactive,
                     ((x * tile_size, y * tile_size)),
                 )
             elif tile == 9:

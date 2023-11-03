@@ -13,5 +13,8 @@ dependencies = [
     "supersuit",
 ]
 
+[tool.setuptools]
+py-modules = []
+
 [tool.setuptools.package-data]
 crowd_rl = ["*.png"] 

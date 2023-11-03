@@ -1,3 +1,8 @@
-pettingzoo[classic]
-stable-baselines3
-sb3-contrib
+agilerl
+pettingzoo
+SuperSuit
+torch
+fastrand
+gymnasium
+imageio
+Pillow
