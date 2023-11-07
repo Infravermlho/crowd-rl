@@ -7,7 +7,8 @@ import numpy as np
 import pygame
 from gymnasium import spaces
 from gymnasium.utils import EzPickle
-from gymnasium.wrappers import FlattenObservation
+from collections import deque
+
 
 from pettingzoo import AECEnv
 from pettingzoo.utils import wrappers
@@ -63,13 +64,9 @@ class raw_env(AECEnv, EzPickle):
         self.height = None
         self.width = None
 
-        self.agents = [f"player_{i}" for i in range(self.config.num_agents)]
+        self.agents = [f"agent_{i}" for i in range(len(self.config.agents))]
         self.possible_agents = self.agents[:]
         self._agent_selector = agent_selector(self.agents)
-
-        # Handles agent termination
-        self.kill_list = []
-        self.dead_agents = []
 
         # [no_action, move_left, move_right, move_down, move_up]`
         self.action_spaces = {i: spaces.Discrete(5) for i in self.agents}
@@ -77,23 +74,17 @@ class raw_env(AECEnv, EzPickle):
         self.unflattened_observation_spaces = {
             i: spaces.Dict(
                 {
+                    "own_position": gymnasium.spaces.Box(
+                        low=-1024, high=1024, shape=(2,), dtype=np.float32
+                    ),
+                    "target_position": gymnasium.spaces.Box(
+                        low=-1024, high=1024, shape=(2,), dtype=np.float32
+                    ),
                     "obstacles": spaces.Box(
                         low=0,
                         high=1,
                         shape=(self.config.width, self.config.height),
-                        dtype=np.int8,
-                    ),
-                    "agents": spaces.Box(
-                        low=0,
-                        high=1,
-                        shape=(self.config.width, self.config.height),
-                        dtype=np.int8,
-                    ),
-                    "own_position": gymnasium.spaces.Box(
-                        low=-1024, high=1024, shape=(2,), dtype=int
-                    ),
-                    "target_position": gymnasium.spaces.Box(
-                        low=-1024, high=1024, shape=(2,), dtype=int
+                        dtype=np.float32,
                     ),
                 }
             )
@@ -106,7 +97,7 @@ class raw_env(AECEnv, EzPickle):
                     "observation": spaces.flatten_space(
                         self.unflattened_observation_spaces[i]
                     ),
-                    "action_mask": spaces.Box(low=0, high=1, shape=(4,), dtype=np.int8),
+                    "action_mask": spaces.Box(low=0, high=1, shape=(5,), dtype=np.int8),
                 }
             )
             for i in self.unflattened_observation_spaces
@@ -126,15 +117,27 @@ class raw_env(AECEnv, EzPickle):
         self.height = self.config.height
         self.width = self.config.width
 
-        self.agents_pos = dict(zip(self.agents, self.config.agents_starting_xy))
-        self.targets_xy = dict(zip(self.agents, self.config.targets_xy))
+        self.targets = {}
+        for target in self.config.targets:
+            if hasattr(self.targets, str(target.order)):
+                self.targets[str(target.order)].append(target)
+            else:
+                self.targets[str(target.order)] = [target]
+
+        self.agents_pos = {
+            i: [u.starting.x, u.starting.y]
+            for i, u in zip(self.agents, self.config.agents)
+        }
         self.agents_progress = {i: 0 for i in self.agents}
 
         self.rewards = {i: 0 for i in self.agents}
         self._cumulative_rewards = {i: 0 for i in self.agents}
+        self.done = {i: False for i in self.agents}
         self.terminations = {i: False for i in self.agents}
         self.truncations = {i: False for i in self.agents}
         self.infos = {i: {} for i in self.agents}
+        self.infos["agent_mask"] = {i: True for i in self.agents}
+        self.infos["env_defined_actions"] = {i: None for i in self.agents}
 
     def step(self, action):
         if (
@@ -144,24 +147,20 @@ class raw_env(AECEnv, EzPickle):
             return self._was_dead_step(action)
 
         agent = self.agent_selection
+        self._cumulative_rewards[agent] = 0
+
         self._agent_act(agent, action)
 
-        if self._was_on_target(agent):
-            self.rewards[agent] += 1
-            self.kill_list.append(agent)
+        if self._was_on_target(agent) and not self.done[agent]:
+            self.rewards[agent] = 1
+            self.infos["agent_mask"][agent] = False
+            self.done[agent] = True
 
         if self._agent_selector.is_last():
-            _live_agents = self.agents[:]
-            for k in self.kill_list:
-                _live_agents.remove(k)
-                self.terminations[k] = True
-                self.dead_agents.append(k)
+            if all(self.done.values()):
+                self.truncations = dict(zip(self.agents, [True for _ in self.agents]))
 
-            self.kill_list = []
-            self._agent_selector.reinit(_live_agents)
-
-        if len(self._agent_selector.agent_order):
-            self.agent_selection = self._agent_selector.next()
+        self.agent_selection = self._agent_selector.next()
 
         self._accumulate_rewards()
         self._deads_step_first()
@@ -170,23 +169,26 @@ class raw_env(AECEnv, EzPickle):
             self.render()
 
     def observe(self, agent):
-        obstacles_obs = self._get_obstacles(agent)
-        agents_obs = self._get_other_agents(agent)
-        own_postion_obs = self._get_other_agents(agent)
-        target_postion = self._get_target_pos(agent)
-        action_mask = self._get_action_mask(agent)
+        if self.done[agent]:
+            own_postion_obs = np.zeros((2,), "int8")
+            target_postion = np.zeros((2,), "int8")
+            obstacles_obs = np.zeros((self.config.width, self.config.height), "int8")
+            action_mask = np.zeros((5,), "int8")
+        else:
+            own_postion_obs = self._get_agent_pos(agent)
+            obstacles_obs = self._get_obstacles(agent)
+            target_postion = self._get_target_pos(agent)
+            action_mask = self._get_action_mask(agent)
 
         return {
             "observation": spaces.flatten(
                 self.unflattened_observation_spaces[agent],
                 {
-                    "obstacles": obstacles_obs,
-                    "agents": agents_obs,
                     "own_position": own_postion_obs,
                     "target_position": target_postion,
-                    "action_mask": action_mask,
+                    "obstacles": obstacles_obs,
                 },
-            ),
+            ).astype("float32"),
             "action_mask": action_mask,
         }
 
@@ -197,8 +199,6 @@ class raw_env(AECEnv, EzPickle):
         return self.action_spaces[agent]
 
     def render(self):
-        # TODO: Implement screen scaling
-
         if self.render_mode is None:
             gymnasium.logger.warn(
                 "You are calling render method without specifying any render mode."
@@ -240,8 +240,9 @@ class raw_env(AECEnv, EzPickle):
         self.screen.fill([255, 255, 255])
 
         full_feature_map = copy(self.map)
-        for _, target_pos in self.targets_xy.items():
-            full_feature_map[target_pos[0][1]][target_pos[0][0]] = 2
+        for steps in self.targets.values():
+            for target_obj in steps:
+                full_feature_map[target_obj.pos.y][target_obj.pos.x] = 2
         for _, agent_pos in self.agents_pos.items():
             full_feature_map[agent_pos[1]][agent_pos[0]] = 9
 
@@ -305,33 +306,32 @@ class raw_env(AECEnv, EzPickle):
     def _was_on_target(self, agent_id: str):
         return self._get_agent_pos(agent_id) == self._get_target_pos(agent_id)
 
-    def _get_other_agents(self, agent_id: str):
-        # TODO: Manter a lista permanentemente ou gerar na hora?
+    def _get_target_pos(self, agent_id: str):
+        # TODO: TEMPORARY
+        return [self.targets["0"][0].pos.x, self.targets["0"][0].pos.y]
 
-        other_agents_pos = np.zeros((self.width, self.height), "int8")
-        for agent_index, agent_pos in self.agents_pos.items():
-            if agent_index is not agent_id:
-                other_agents_pos[agent_pos[0], agent_pos[1]] = 1
-
-        return other_agents_pos
+    # def _get_other_agents(self, agent_id: str):
+    #
+    #     other_agents_pos = np.zeros((self.width, self.height), "int8")
+    #     for agent_index, agent_pos in self.agents_pos.items():
+    #         if agent_index is not agent_id:
+    #             other_agents_pos[agent_pos[0], agent_pos[1]] = 1
+    #
+    #     return other_agents_pos
 
     def _get_obstacles(self, agent_id: str):
-        # TODO: Different maps to different kinds of agents
         return self.map
-
-    def _get_target_pos(self, agent_id: str):
-        return self.targets_xy[agent_id][self.agents_progress[agent_id]]
 
     def _get_action_mask(self, agent_id: str):
         # [no_action, move_left, move_right, move_down, move_up]`
 
         action_mask = np.ones(5, "int8")
-        current_pos_x, current_pos_y = self.agents_pos[agent_id]
+        current_pos_x, current_pos_y = (
+            self.agents_pos[agent_id][0],
+            self.agents_pos[agent_id][1],
+        )
 
         colision_map = copy(self.map)
-        for _, agent_pos in self.agents_pos.items():
-            colision_map[agent_pos[1]][agent_pos[0]] = 9
-
         if current_pos_x - 1 < 0 or colision_map[current_pos_y][current_pos_x - 1] != 0:
             action_mask[1] = 0
 
@@ -354,29 +354,74 @@ class raw_env(AECEnv, EzPickle):
 
     def _agent_act(self, agent_id: str, action: int):
         if action == 0:
-            # no_action
             ...
+            # if not self.done[agent_id]:
+                # self.rewards[agent_id] = -1
+
         elif action == 1:
             # move_left
-            current_pos = self.agents_pos[agent_id]
-            assert self.map[current_pos[1]][current_pos[0] - 1] == 0
-            self.agents_pos[agent_id] = [current_pos[0] - 1, current_pos[1]]
+            old_pos = self.agents_pos[agent_id]
+            assert self.map[old_pos[1]][old_pos[0] - 1] == 0
+
+            new_pos = [old_pos[0] - 1, old_pos[1]]
+            if new_pos not in self.agents_pos.values():
+                self.agents_pos[agent_id] = new_pos
 
         elif action == 2:
             # move_right
-            current_pos = self.agents_pos[agent_id]
+            old_pos = self.agents_pos[agent_id]
+            assert self.map[old_pos[1]][old_pos[0] + 1] == 0
 
-            assert self.map[current_pos[1]][current_pos[0] + 1] == 0
-            self.agents_pos[agent_id] = [current_pos[0] + 1, current_pos[1]]
+            new_pos = [old_pos[0] + 1, old_pos[1]]
+            if new_pos not in self.agents_pos.values():
+                self.agents_pos[agent_id] = new_pos
 
         elif action == 3:
             # move_down
-            current_pos = self.agents_pos[agent_id]
-            assert self.map[current_pos[1] + 1][current_pos[0]] == 0
-            self.agents_pos[agent_id] = [current_pos[0], current_pos[1] + 1]
+            old_pos = self.agents_pos[agent_id]
+            assert self.map[old_pos[1] + 1][old_pos[0]] == 0
+
+            new_pos = [old_pos[0], old_pos[1] + 1]
+            if new_pos not in self.agents_pos.values():
+                self.agents_pos[agent_id] = new_pos
 
         elif action == 4:
             # move_up
-            current_pos = self.agents_pos[agent_id]
-            assert self.map[current_pos[1] - 1][current_pos[0]] == 0
-            self.agents_pos[agent_id] = [current_pos[0], current_pos[1] - 1]
+            old_pos = self.agents_pos[agent_id]
+            assert self.map[old_pos[1] - 1][old_pos[0]] == 0
+
+            new_pos = [old_pos[0], old_pos[1] - 1]
+            if new_pos not in self.agents_pos.values():
+                self.agents_pos[agent_id] = new_pos
+
+    # def _flood_rewards(self, agent_id):
+    #     moves = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+
+    #     # TODO: temporary!
+    #     target_pos = (self.targets[0][0].pos.x, self.targets[0][0].pos.y)
+
+    #     vis_map = np.zeros(self.width, self.height)
+    #     dist_map = np.zeros(self.width, self.height)
+
+    #     q = deque()
+    #     q.append(target_pos)
+    #     vis_map[target_pos[0]][target_pos[1]] = True
+    #     dist_map[target_pos[0]][target_pos[1]] = True
+    #     while len(q):
+    #         x, y = q.popleft()
+    #         for dx, dy in moves:
+    #             new_x = x + dx
+    #             new_y = y + dy
+    #             if (
+    #                 self.width > new_x >= 0
+    #                 and self.height > new_y >= 0
+    #                 and not vis_map[new_x][new_y]
+    #                 and self.map[new_x][new_y] == 0
+    #             ):
+    #                 q.append((new_x, new_y))
+    #                 vis_map[new_x][new_y] = True
+    #                 dist_map[new_x][new_y] = dist_map[x][y] + 1
+    #         if not vis_map[self.width - 1][self.height - 1]:
+    #             print(-1)
+    #         else:
+    #             print(dist_map[self.width - 1][self.height - 1])

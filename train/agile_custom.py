@@ -1,11 +1,8 @@
-import copy
 import random
 
-import dill
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 
 
 def custom_getAction(
@@ -16,19 +13,6 @@ def custom_getAction(
     env_defined_actions=None,
     action_masks=None,
 ):
-    """Returns the next action to take in the environment.
-    Epsilon is the probability of taking a random action, used for exploration.
-    For epsilon-greedy behaviour, set epsilon to 0.
-
-    :param state: Environment observations: {'agent_0': state_dim_0, ..., 'agent_n': state_dim_n}
-    :type state: Dict[str, numpy.Array]
-    :param epsilon: Probablilty of taking a random action for exploration, defaults to 0
-    :type epsilon: float, optional
-    :param agent_mask: Mask of agents to return actions for: {'agent_0': True, ..., 'agent_n': False}
-    :type agent_mask: Dict[str, bool]
-    :param env_defined_actions: Mask of agents to return actions for: {'agent_0': True, ..., 'agent_n': False}
-    :type env_defined_actions: Dict[str, bool]
-    """
     # Get agents, states and actions we want to take actions for at this timestep according to agent_mask
     if agent_mask is None:
         agent_ids = self.agent_ids
@@ -82,9 +66,6 @@ def custom_getAction(
                         np.arange(0, self.action_dims[idx]), mask=inv_mask
                     ).compressed()
                     action = np.random.choice(available_actions)
-                    # print(f"action_mask: {action_mask}")
-                    # print(f"available_actions: {available_actions}")
-                    # print(f"action: {action}")
             else:
                 action = (
                     np.random.rand(state.size()[0], self.action_dims[idx])
@@ -105,12 +86,11 @@ def custom_getAction(
                 if action_mask is None:
                     action = action_values.squeeze(0).argmax().item()
                 else:
-                    exit()
                     inv_mask = 1 - action_mask
                     masked_action_values = np.ma.array(
                         action_values.cpu().data.numpy(), mask=inv_mask
                     )
-                    action = np.argmax(masked_action_values, axis=-1)
+                    action = np.argmax(masked_action_values, axis=-1)[0]
             else:
                 action = action_values.cpu().data.numpy().squeeze() + np.random.normal(
                     0,
@@ -120,7 +100,6 @@ def custom_getAction(
                 action = np.clip(
                     action, self.min_action[idx][0], self.max_action[idx][0]
                 )
-        # print(f"final_action: {action}")
         actions[agent_id] = action
 
     if env_defined_actions is not None:
@@ -129,3 +108,50 @@ def custom_getAction(
                 actions.update({agent: env_defined_actions[agent]})
 
     return actions
+
+
+def custom_test(self, env, swap_channels=False, max_steps=500, loop=3):
+    with torch.no_grad():
+        rewards = []
+        for i in range(loop):
+            state, info = env.reset()
+            action_mask = {i: state[i]["action_mask"] for i in state}
+            observation = {i: state[i]["observation"] for i in state}
+
+            agent_reward = {agent_id: 0 for agent_id in self.agent_ids}
+            score = 0
+            for _ in range(max_steps):
+                if swap_channels:
+                    state = {
+                        agent_id: np.moveaxis(np.expand_dims(s, 0), [3], [1])
+                        for agent_id, s in state.items()
+                    }
+                agent_mask = info["agent_mask"] if "agent_mask" in info.keys() else None
+                env_defined_actions = (
+                    info["env_defined_actions"]
+                    if "env_defined_actions" in info.keys()
+                    else None
+                )
+                action = custom_getAction(
+                    self,
+                    observation,
+                    epsilon=0,
+                    agent_mask=agent_mask,
+                    action_masks=action_mask,
+                    env_defined_actions=env_defined_actions,
+                )
+                state, reward, done, trunc, info = env.step(action)
+                action_mask = {i: state[i]["action_mask"] for i in state}
+                observation = {i: state[i]["observation"] for i in state}
+
+                for agent_id, r in reward.items():
+                    agent_reward[agent_id] += r
+                score = sum(agent_reward.values())
+
+                if any(trunc.values()):
+                    break
+
+            rewards.append(score)
+    mean_fit = np.mean(rewards)
+    self.fitness.append(mean_fit)
+    return mean_fit

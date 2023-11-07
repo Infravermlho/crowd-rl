@@ -1,5 +1,6 @@
-"""
-MATD3 agent 
+"""This tutorial shows how to train an MATD3 agent on the simple speaker listener multi-particle environment.
+
+Authors: Michael (https://github.com/mikepratt1), Nickua (https://github.com/nicku-a)
 """
 import os
 
@@ -11,11 +12,7 @@ from agilerl.hpo.tournament import TournamentSelection
 from agilerl.utils.utils import initialPopulation
 from tqdm import trange
 
-# from pettingzoo.mpe import simple_speaker_listener_v4
-from crowd_rl import crowd_rl_v0
-from crowd_rl.crowd_rl_v0 import Config
-from agile_custom import custom_getAction
-
+from pettingzoo.mpe import simple_speaker_listener_v4
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -42,40 +39,34 @@ if __name__ == "__main__":
         "POLICY_FREQ": 2,  # Policy frequnecy
     }
 
-    # !COISAS DO ENV!
-    env_config = Config(
-        worldmap=[
-            [1, 0, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 1, 0, 1, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 0, 0, 1],
-        ],
-        num_agents=1,
-        agents_starting_xy=[[3, 1], [3, 1]],
-        targets_xy=[
-            [[3, 5]],
-        ],
-    )
-
     # Define the simple speaker listener environment as a parallel environment
-    env = crowd_rl_v0.parallel_env(config=env_config)
+    env = simple_speaker_listener_v4.parallel_env(continuous_actions=True)
     env.reset()
 
     # Configure the multi-agent algo input arguments
-    state_dim = [
-        env.observation_space(agent)["observation"].shape for agent in env.agents
-    ]
-    one_hot = False
-    action_dim = [env.action_space(agent).n for agent in env.agents]
-    INIT_HP["DISCRETE_ACTIONS"] = True
-    INIT_HP["MAX_ACTION"] = None
-    INIT_HP["MIN_ACTION"] = None
+    try:
+        state_dim = [env.observation_space(agent).n for agent in env.agents]
+        one_hot = True
+    except Exception:
+        # print(f"Debug: {env.observation_space(env.agents[0])}")
+        state_dim = [env.observation_space(agent).shape for agent in env.agents]
+        one_hot = False
+    try:
+        action_dim = [env.action_space(agent).n for agent in env.agents]
+        INIT_HP["DISCRETE_ACTIONS"] = True
+        INIT_HP["MAX_ACTION"] = None
+        INIT_HP["MIN_ACTION"] = None
+    except Exception:
+        action_dim = [env.action_space(agent).shape[0] for agent in env.agents]
+        INIT_HP["DISCRETE_ACTIONS"] = False
+        INIT_HP["MAX_ACTION"] = [env.action_space(agent).high for agent in env.agents]
+        INIT_HP["MIN_ACTION"] = [env.action_space(agent).low for agent in env.agents]
+
+    # Not applicable to MPE environments, used when images are used for observations (Atari environments)
+    if INIT_HP["CHANNELS_LAST"]:
+        state_dim = [
+            (state_dim[2], state_dim[0], state_dim[1]) for state_dim in state_dim
+        ]
 
     # Append number of agents and agent IDs to the initial hyperparameter dictionary
     INIT_HP["N_AGENTS"] = env.num_agents
@@ -132,7 +123,7 @@ if __name__ == "__main__":
     )
 
     # Define training loop parameters
-    max_episodes = 100  # Total episodes (default: 6000)
+    max_episodes = 6000  # Total episodes (default: 6000)
     max_steps = 25  # Maximum steps to take in each episode
     epsilon = 1.0  # Starting epsilon value
     eps_end = 0.1  # Final epsilon value
@@ -145,34 +136,34 @@ if __name__ == "__main__":
     for idx_epi in trange(max_episodes):
         for agent in pop:  # Loop through population
             state, _ = env.reset()  # Reset environment at start of episode
-
-            action_mask = {i: state[i]["action_mask"] for i in state}
-            # print(f"inscript_action_mask: {action_mask}")
-            observation = {i: state[i]["observation"] for i in state}
-
             agent_reward = {agent_id: 0 for agent_id in env.agents}
 
+            if INIT_HP["CHANNELS_LAST"]:
+                state = {
+                    agent_id: np.moveaxis(np.expand_dims(s, 0), [3], [1])
+                    for agent_id, s in state.items()
+                }
+
             for _ in range(max_steps):
-                action = custom_getAction(
-                    agent, observation, epsilon, action_masks=action_mask
-                )  # Get next action from agent
+                action = agent.getAction(state, epsilon)  # Get next action from agent
                 next_state, reward, termination, truncation, _ = env.step(
                     action
                 )  # Act in environment
 
-                next_observations = {i: next_state[i]["observation"] for i in next_state}
-                next_action_mask = {i: next_state[i]["action_mask"] for i in next_state}
+                # Image processing if necessary for the environment
+                if INIT_HP["CHANNELS_LAST"]:
+                    state = {agent_id: np.squeeze(s) for agent_id, s in state.items()}
+                    next_state = {
+                        agent_id: np.moveaxis(ns, [2], [0])
+                        for agent_id, ns in next_state.items()
+                    }
 
                 # Stop episode if any agents have terminated
                 if any(truncation.values()) or any(termination.values()):
                     break
 
-                print(observation)
-                print(next_observations)
                 # Save experiences to replay buffer
-                memory.save2memory(
-                    observation, action, reward, next_observations, termination
-                )
+                memory.save2memory(state, action, reward, next_state, termination)
 
                 # Collect the reward
                 for agent_id, r in reward.items():
@@ -187,9 +178,13 @@ if __name__ == "__main__":
                     )  # Sample replay buffer
                     agent.learn(experiences)  # Learn according to agent's RL algorithm
 
+                # Update the state
+                if INIT_HP["CHANNELS_LAST"]:
+                    next_state = {
+                        agent_id: np.expand_dims(ns, 0)
+                        for agent_id, ns in next_state.items()
+                    }
                 state = next_state
-                action_mask = next_action_mask
-                observation = next_observations
 
             # Save the total episode reward
             score = sum(agent_reward.values())
