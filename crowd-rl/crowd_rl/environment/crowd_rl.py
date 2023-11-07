@@ -74,7 +74,7 @@ class raw_env(AECEnv, EzPickle):
         # [no_action, move_left, move_right, move_down, move_up]`
         self.action_spaces = {i: spaces.Discrete(5) for i in self.agents}
 
-        self.observation_spaces = {
+        self.unflattened_observation_spaces = {
             i: spaces.Dict(
                 {
                     "obstacles": spaces.Box(
@@ -95,10 +95,21 @@ class raw_env(AECEnv, EzPickle):
                     "target_position": gymnasium.spaces.Box(
                         low=-1024, high=1024, shape=(2,), dtype=int
                     ),
-                    "action_mask": spaces.Box(low=0, high=1, shape=(4,), dtype=np.int8),
                 }
             )
             for i in self.agents
+        }
+
+        self.observation_spaces = {
+            i: spaces.Dict(
+                {
+                    "observation": spaces.flatten_space(
+                        self.unflattened_observation_spaces[i]
+                    ),
+                    "action_mask": spaces.Box(low=0, high=1, shape=(4,), dtype=np.int8),
+                }
+            )
+            for i in self.unflattened_observation_spaces
         }
 
         if self.render_mode == "human":
@@ -139,22 +150,14 @@ class raw_env(AECEnv, EzPickle):
             self.rewards[agent] += 1
             self.kill_list.append(agent)
 
-        # manage the kill list
         if self._agent_selector.is_last():
-            # start iterating on only the living agents
             _live_agents = self.agents[:]
             for k in self.kill_list:
-                # kill the agent
                 _live_agents.remove(k)
-                # set the termination for this agent for one round
                 self.terminations[k] = True
-                # add that we know this guy is dead
                 self.dead_agents.append(k)
 
-            # reset the kill list
             self.kill_list = []
-
-            # reinit the agent selector with existing agents
             self._agent_selector.reinit(_live_agents)
 
         if len(self._agent_selector.agent_order):
@@ -173,16 +176,17 @@ class raw_env(AECEnv, EzPickle):
         target_postion = self._get_target_pos(agent)
         action_mask = self._get_action_mask(agent)
 
-        # print(f"Obstacles for {agent}: {obstacles_obs}")
-        # print(f"Agents_obs for {agent}: {agents_obs}")
-        # print(f"own_position_obs for {agent}: {own_postion_obs}")
-        # print(f"target_position for {agent}: {target_postion}")
-        # print(f"Action mask for {agent}: {action_mask}")
         return {
-            "obstacles": obstacles_obs,
-            "agents": agents_obs,
-            "own_position": own_postion_obs,
-            "target_postion": target_postion,
+            "observation": spaces.flatten(
+                self.unflattened_observation_spaces[agent],
+                {
+                    "obstacles": obstacles_obs,
+                    "agents": agents_obs,
+                    "own_position": own_postion_obs,
+                    "target_position": target_postion,
+                    "action_mask": action_mask,
+                },
+            ),
             "action_mask": action_mask,
         }
 
@@ -226,7 +230,9 @@ class raw_env(AECEnv, EzPickle):
         target = pygame.transform.scale(target, (tile_size, tile_size))
 
         target_inactive = get_image(os.path.join("img", "target_inactive.png"))
-        target_inactive = pygame.transform.scale(target_inactive, (tile_size, tile_size))
+        target_inactive = pygame.transform.scale(
+            target_inactive, (tile_size, tile_size)
+        )
 
         target_primary = get_image(os.path.join("img", "target_primary.png"))
         target_primary = pygame.transform.scale(target_primary, (tile_size, tile_size))

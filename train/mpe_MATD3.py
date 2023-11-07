@@ -1,5 +1,6 @@
-"""
-MATD3 agent 
+"""This tutorial shows how to train an MATD3 agent on the simple speaker listener multi-particle environment.
+
+Authors: Michael (https://github.com/mikepratt1), Nickua (https://github.com/nicku-a)
 """
 import os
 
@@ -11,8 +12,7 @@ from agilerl.hpo.tournament import TournamentSelection
 from agilerl.utils.utils import initialPopulation
 from tqdm import trange
 
-# from pettingzoo.mpe import simple_speaker_listener_v4
-from crowd_rl import crowd_rl_v0
+from pettingzoo.mpe import simple_speaker_listener_v4
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     }
 
     # Define the simple speaker listener environment as a parallel environment
-    env = crowd_rl_v0.parallel_env(continuous_actions=True)
+    env = simple_speaker_listener_v4.parallel_env(continuous_actions=True)
     env.reset()
 
     # Configure the multi-agent algo input arguments
@@ -48,6 +48,7 @@ if __name__ == "__main__":
         state_dim = [env.observation_space(agent).n for agent in env.agents]
         one_hot = True
     except Exception:
+        print(f"Debug: {env.observation_space(env.agents[0])}")
         state_dim = [env.observation_space(agent).shape for agent in env.agents]
         one_hot = False
     try:
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     )
 
     # Define training loop parameters
-    max_episodes = 100  # Total episodes (default: 6000)
+    max_episodes = 5  # Total episodes (default: 6000)
     max_steps = 25  # Maximum steps to take in each episode
     epsilon = 1.0  # Starting epsilon value
     eps_end = 0.1  # Final epsilon value
