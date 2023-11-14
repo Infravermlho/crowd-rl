@@ -22,6 +22,8 @@ if __name__ == "__main__":
             mask = observation["action_mask"]
             action = env.action_space(agent).sample(mask)
 
+        print(reward)
+        print(observation)
         env.step(action)
 
 env.close()

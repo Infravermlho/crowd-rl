@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
     # Define test loop parameters
     episodes = 10  # Number of episodes to test agent on
-    max_steps = 25  # Max number of steps to take in the environment in each episode
+    max_steps = 500  # Max number of steps to take in the environment in each episode
 
     rewards = []  # List to collect total episodic reward
     frames = []  # List to collect frames

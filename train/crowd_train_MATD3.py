@@ -51,6 +51,7 @@ if __name__ == "__main__":
     state_dim = [
         env.observation_space(agent)["observation"].shape for agent in env.agents
     ]
+    print([env.observation_space(agent)["observation"].shape for agent in env.agents])
 
     one_hot = False
     action_dim = [env.action_space(agent).n for agent in env.agents]
@@ -72,7 +73,7 @@ if __name__ == "__main__":
         INIT_HP,
         population_size=INIT_HP["POPULATION_SIZE"],
         device=device,
-    ) 
+    )
 
     # Configure the multi-agent replay buffer
     field_names = ["state", "action", "reward", "next_state", "done"]
@@ -113,8 +114,8 @@ if __name__ == "__main__":
     )
 
     # Define training loop parameters
-    max_episodes = 2000  # Total episodes (default: 6000)
-    max_steps = 50  # Maximum steps to take in each episode
+    max_episodes = 1000  # Total episodes (default: 6000)
+    max_steps = 250  # Maximum steps to take in each episode
     epsilon = 0.9  # Starting epsilon value
     eps_end = 0.1  # Final epsilon value
     eps_decay = 0.995  # Epsilon decay
@@ -133,15 +134,12 @@ if __name__ == "__main__":
             agent_reward = {agent_id: 0 for agent_id in env.agents}
             for _ in range(max_steps):
                 agent_mask = info["agent_mask"]
-                env_defined_actions = info["env_defined_actions"]
 
                 action = custom_getAction(
                     agent,
                     observation,
                     epsilon,
                     action_masks=action_mask,
-                    agent_mask=agent_mask,
-                    env_defined_actions=env_defined_actions,
                 )  # Get next action from agent
 
                 next_state, reward, termination, truncation, info = env.step(
@@ -153,6 +151,9 @@ if __name__ == "__main__":
                 }
                 next_action_mask = {i: next_state[i]["action_mask"] for i in next_state}
 
+                # Stop episode if any agents have terminated
+                if any(truncation.values()) or any(termination.values()):
+                    break
 
                 # Save experiences to replay buffer
                 memory.save2memory(
@@ -172,11 +173,6 @@ if __name__ == "__main__":
                     )  # Sample replay buffer
                     agent.learn(experiences)  # Learn according to agent's RL algorithm
 
-                # Stop episode if any agents have terminated
-                if any(truncation.values()) or any(termination.values()):
-                    print("reached the end")
-                    break
-
                 state = next_state
                 action_mask = next_action_mask
                 observation = next_observations
@@ -188,7 +184,6 @@ if __name__ == "__main__":
         # Update epsilon for exploration
         # epsilon = max(eps_end, epsilon - eps_decay)
         epsilon = max(eps_end, epsilon * eps_decay)
-        print(f"new epsilon value {epsilon}")
 
         # Now evolve population if necessary
         if (idx_epi + 1) % evo_epochs == 0:
@@ -198,6 +193,7 @@ if __name__ == "__main__":
                     agent,
                     env,
                     swap_channels=INIT_HP["CHANNELS_LAST"],
+                    max_steps=max_steps,
                     loop=evo_loop,
                 )
                 for agent in pop

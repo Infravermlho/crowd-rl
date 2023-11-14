@@ -1,0 +1,8 @@
+agilerl
+pettingzoo[mpe]
+SuperSuit
+torch
+fastrand
+gymnasium
+imageio
+Pillow
