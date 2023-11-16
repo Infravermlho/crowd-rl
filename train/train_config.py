@@ -1,4 +1,4 @@
-from crowd_rl.crowd_rl_v0 import Config, Agent, Coords, Queue, Attendant
+from crowd_rl.crowd_rl_v0 import Config, Agent, Coords, Queue, Attendant, Entrance, Exit
 
 queues = [
     Queue(
@@ -9,19 +9,17 @@ queues = [
             # Attendant(pos=Coords(x=4, y=1)),
             # Attendant(pos=Coords(x=6, y=1)),
         ],
-        wait_spots=[Coords(x=6, y=4), Coords(x=6, y=5), Coords(x=6, y=6), Coords(x=6, y=7)],
+        wait_spots=[
+            Coords(x=6, y=4),
+            Coords(x=6, y=5),
+            Coords(x=6, y=6),
+            Coords(x=6, y=7),
+        ],
     ),
 ]
 
 agents = [
     Agent(type=0, pos=Coords(x=3, y=8)),
-    # Agent(type=0, pos=Coords(x=1, y=8)),
-    # Agent(type=0, pos=Coords(x=2, y=8)),
-    # Agent(type=0, pos=Coords(x=4, y=9)),
-    # Agent(type=0, pos=Coords(x=3, y=9)),
-    # Agent(type=0, pos=Coords(x=5, y=1)),
-    # Agent(type=0, pos=Coords(x=2, y=1)),
-    # Agent(type=0, pos=Coords(x=1, y=3)),
 ]
 
 worldmap = [
@@ -37,10 +35,13 @@ worldmap = [
     [0, 0, 0, 0, 0, 0, 0, 0, 1],
 ]
 
+exits = [Exit(pos=Coords(x=1, y=0), accepts=[0])]
+
 env_config = Config(
     worldmap=worldmap,
     queues=queues,
     agents=agents,
+    exits=exits,
 )
 
 

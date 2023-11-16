@@ -3,6 +3,7 @@ MATD3 agent
 """
 import os
 
+from copy import deepcopy
 import numpy as np
 import torch
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
@@ -32,7 +33,6 @@ if __name__ == "__main__":
     INIT_HP = {
         "POPULATION_SIZE": 6,
         "ALGO": "MATD3",  # Algorithm
-        # Swap image channels dimension from last to first [H, W, C] -> [C, H, W]
         "CHANNELS_LAST": False,
         "BATCH_SIZE": 1024,  # Batch size
         "LR": 0.01,  # Learning rate
@@ -51,7 +51,6 @@ if __name__ == "__main__":
     state_dim = [
         env.observation_space(agent)["observation"].shape for agent in env.agents
     ]
-    print([env.observation_space(agent)["observation"].shape for agent in env.agents])
 
     one_hot = False
     action_dim = [env.action_space(agent).n for agent in env.agents]
@@ -61,7 +60,7 @@ if __name__ == "__main__":
 
     # Append number of agents and agent IDs to the initial hyperparameter dictionary
     INIT_HP["N_AGENTS"] = env.num_agents
-    INIT_HP["AGENT_IDS"] = env.agents
+    INIT_HP["AGENT_IDS"] = list(env.agents)
 
     # Create a population ready for evolutionary hyper-parameter optimisation
     pop = initialPopulation(
@@ -126,15 +125,13 @@ if __name__ == "__main__":
     # Training loop
     for idx_epi in trange(max_episodes):
         for agent in pop:
-            state, info = env.reset()
+            state, _ = env.reset()
 
             action_mask = {i: state[i]["action_mask"] for i in state}
             observation = {i: state[i]["observation"] for i in state}
-
             agent_reward = {agent_id: 0 for agent_id in env.agents}
-            for _ in range(max_steps):
-                agent_mask = info["agent_mask"]
 
+            for _ in range(max_steps):
                 action = custom_getAction(
                     agent,
                     observation,
@@ -147,9 +144,11 @@ if __name__ == "__main__":
                 )  # Act in environment
 
                 next_observations = {
-                    i: next_state[i]["observation"] for i in next_state
+                    i: deepcopy(next_state[i]["observation"]) for i in next_state
                 }
-                next_action_mask = {i: next_state[i]["action_mask"] for i in next_state}
+                next_action_mask = {
+                    i: deepcopy(next_state[i]["action_mask"]) for i in next_state
+                }
 
                 # Stop episode if any agents have terminated
                 if any(truncation.values()) or any(termination.values()):
@@ -173,7 +172,6 @@ if __name__ == "__main__":
                     )  # Sample replay buffer
                     agent.learn(experiences)  # Learn according to agent's RL algorithm
 
-                state = next_state
                 action_mask = next_action_mask
                 observation = next_observations
 

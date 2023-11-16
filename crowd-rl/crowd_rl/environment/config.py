@@ -17,24 +17,41 @@ class Coords(BaseModel):
         return [self.x, self.y]
 
 
-class Agent(BaseModel):
-    type: int
+class Exit(BaseModel):
     pos: Coords
-
-    proximity: int | None = None
-    next_target: Optional[Coords] = None
-    progress: int = 0
-    stall: int = 0
-    waiting: bool = False
-    being_served: bool = False
+    accepts: List[int]
 
 
 class Attendant(BaseModel):
     pos: Coords
-    busy: bool = False
+    rate: int = 0
 
+    client: "Optional[Agent]" = None
+    busy: bool = False
+    cooldown: int = 0
     order: int | None = None
     queue: "Optional[Queue]" = None
+
+
+class Agent(BaseModel):
+    type: int
+    pos: Coords = Coords(x=-1, y=-1)
+
+    proximity: int | None = None
+    next_attendant: Optional[List[Attendant]] = None
+    progress: int = 0
+    undeployed: bool = False
+    waiting: bool = False
+    being_served: bool = False
+
+
+class Entrance(BaseModel):
+    pos: Coords
+    rate: int = 0
+    agents: list[Agent]
+
+    cooldown: int = 0
+    agent_queue: Deque[Agent] = deque()
 
 
 class Queue(BaseModel):
@@ -43,6 +60,7 @@ class Queue(BaseModel):
     attendants: List[Attendant]
     wait_spots: List[Coords]
 
+    free_spots: int = 0
     busy_attendants: int = 0
     members: Deque[Agent] = deque()
 
@@ -54,13 +72,15 @@ class Queue(BaseModel):
     @computed_field
     @property
     def busy(self) -> int:
-        return len(self.members)
+        return len(self.members) + self.free_spots
 
 
 class Config(BaseModel):
     worldmap: list
     queues: List[Queue]
-    agents: List[Agent]
+    exits: list[Exit]
+    entrances: list[Entrance] = []
+    agents: List[Agent] = []
 
     seed: Optional[int] = None
 

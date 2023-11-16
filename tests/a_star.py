@@ -4,12 +4,13 @@ Run pip install .\crowd-rl\ before running
 """
 
 from crowd_rl import crowd_rl_v0 as crowd
-from test_config_small import env_config
+from test_config_mall import env_config
+import random
 import numpy as np
-import time
+import numpy.ma as ma
 
 if __name__ == "__main__":
-    env = crowd.env(config=env_config, render_mode="human")
+    env = crowd.env(config=env_config, render_mode="human", render_fps=8)
     env.reset(seed=42)
 
     for agent in env.agent_iter():
@@ -20,8 +21,13 @@ if __name__ == "__main__":
         else:
             mask = observation["action_mask"]
             obs = observation["observation"]
-            print(obs)
-            action = env.action_space(agent).sample(mask)
+
+            inv_mask = 1 - mask
+
+            moves = np.insert(obs[:4], 0, 255, axis=0)
+            masked_moves = ma.array(moves, mask=inv_mask)
+            action = np.where(masked_moves == masked_moves.min())[0]
+            action = action[random.randint(0, len(action) - 1)]
 
         env.step(action)
 
